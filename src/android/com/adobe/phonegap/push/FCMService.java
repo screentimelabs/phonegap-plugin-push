@@ -23,9 +23,9 @@ import android.graphics.Canvas;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.v4.app.NotificationCompat;
-import android.support.v4.app.NotificationCompat.WearableExtender;
-import android.support.v4.app.RemoteInput;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationCompat.WearableExtender;
+import androidx.core.app.RemoteInput;
 import android.text.Html;
 import android.text.Spanned;
 import android.util.Log;
@@ -65,6 +65,23 @@ public class FCMService extends FirebaseMessagingService implements PushConstant
       messageList.clear();
     } else {
       messageList.add(message);
+    }
+  }
+  
+  @Override
+  public void onNewToken(String refreshedToken) {
+    super.onNewToken(refreshedToken);
+    try {
+      if (!"".equals(refreshedToken)) {
+        Log.d(LOG_TAG, "Refreshed token: " + refreshedToken);
+        SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
+                Context.MODE_PRIVATE);
+        sharedPref.edit()
+                .putString(FCM_TOKEN, refreshedToken)
+                .apply();
+      }
+    } catch (Exception ex) {
+      Log.e(LOG_TAG, ex.getMessage());
     }
   }
 
