@@ -563,8 +563,8 @@ public class FCMService extends FirebaseMessagingService implements PushConstant
           Intent intent = null;
           PendingIntent pIntent = null;
           if (inline) {
-            Log.d(LOG_TAG, "Version: " + android.os.Build.VERSION.SDK_INT + " = " + android.os.Build.VERSION_CODES.M);
-            if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.M) {
+            Log.d(LOG_TAG, "Version: " + Build.VERSION.SDK_INT + " = " + Build.VERSION_CODES.M);
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
               Log.d(LOG_TAG, "push activity");
               intent = new Intent(this, PushHandlerActivity.class);
             } else {
@@ -574,7 +574,7 @@ public class FCMService extends FirebaseMessagingService implements PushConstant
 
             updateIntent(intent, action.getString(CALLBACK), extras, foreground, notId);
 
-            if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.M) {
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
               Log.d(LOG_TAG, "push activity for notId " + notId);
               pIntent = PendingIntent.getActivity(this, uniquePendingIntentRequestCode, intent,
                   PendingIntent.FLAG_ONE_SHOT);

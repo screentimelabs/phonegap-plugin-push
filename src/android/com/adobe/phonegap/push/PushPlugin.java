@@ -12,11 +12,16 @@ import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+
+import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+
+import android.text.TextUtils;
 import android.util.Log;
 
-import com.google.firebase.iid.FirebaseInstanceId;
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.Task;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 import org.apache.cordova.CallbackContext;
@@ -179,7 +184,7 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
           Log.v(LOG_TAG, "execute: data=" + data.toString());
           SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
               Context.MODE_PRIVATE);
-          String token = null;
+          final String[] token = {""};
           String senderID = null;
 
           try {
@@ -195,25 +200,32 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
             Log.v(LOG_TAG, "execute: senderID=" + senderID);
 
             try {
-              token = FirebaseInstanceId.getInstance().getToken();
+              int nRetryCount = 0;
+              while (nRetryCount < 5) {
+                Task<String> tokenTask = FirebaseMessaging.getInstance().getToken().addOnCompleteListener(new OnCompleteListener<String>() {
+                  @Override
+                  public void onComplete(@NonNull Task<String> task) {
+                    token[0] = task.getResult();
+                  }
+                });
+                if (tokenTask.isComplete() && !TextUtils.isEmpty(token[0])) {
+                  break;
+                } else {
+                  nRetryCount++;
+                  token[0] = "";
+                  Thread.sleep(5000);
+                }
+              }
             } catch (IllegalStateException e) {
               Log.e(LOG_TAG, "Exception raised while getting Firebase token " + e.getMessage());
             }
 
-            if (token == null) {
-              try {
-                token = FirebaseInstanceId.getInstance().getToken(senderID, FCM);
-              } catch (IllegalStateException e) {
-                Log.e(LOG_TAG, "Exception raised while getting Firebase token " + e.getMessage());
-              }
+            if (token[0] == null || "".equals(token[0])) {
+              token[0] = sharedPref.getString(FCM_TOKEN, "");
             }
 
-            if (token == null || "".equals(token)) {
-              token = sharedPref.getString(FCM_TOKEN, "");
-            }
-
-            if (!"".equals(token)) {
-              JSONObject json = new JSONObject().put(REGISTRATION_ID, token);
+            if (!"".equals(token[0])) {
+              JSONObject json = new JSONObject().put(REGISTRATION_ID, token[0]);
               json.put(REGISTRATION_TYPE, FCM);
 
               Log.v(LOG_TAG, "onRegistered: " + json.toString());
@@ -229,12 +241,12 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
           } catch (JSONException e) {
             Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
             callbackContext.error(e.getMessage());
-          } catch (IOException e) {
-            Log.e(LOG_TAG, "execute: Got IO Exception " + e.getMessage());
-            callbackContext.error(e.getMessage());
           } catch (Resources.NotFoundException e) {
 
             Log.e(LOG_TAG, "execute: Got Resources NotFoundException " + e.getMessage());
+            callbackContext.error(e.getMessage());
+          } catch (Exception e) {
+            Log.e(LOG_TAG, "execute: Got IO Exception " + e.getMessage());
             callbackContext.error(e.getMessage());
           }
 
@@ -284,28 +296,40 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
       cordova.getThreadPool().execute(new Runnable() {
         public void run() {
           try {
-            SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
+            final SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
                 Context.MODE_PRIVATE);
             JSONArray topics = data.optJSONArray(0);
             if (topics != null && !"".equals(registration_id)) {
               unsubscribeFromTopics(topics, registration_id);
             } else {
-              FirebaseInstanceId.getInstance().deleteInstanceId();
-              Log.v(LOG_TAG, "UNREGISTER");
-
-              // Remove shared prefs
-              SharedPreferences.Editor editor = sharedPref.edit();
-              editor.remove(SOUND);
-              editor.remove(VIBRATE);
-              editor.remove(CLEAR_BADGE);
-              editor.remove(CLEAR_NOTIFICATIONS);
-              editor.remove(FORCE_SHOW);
-              editor.remove(SENDER_ID);
-              editor.commit();
+              int nRetryCount = 0;
+              while (nRetryCount < 3) {
+                Task<Void> deleteTokenTask = FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener(new OnCompleteListener<Void>() {
+                  @Override
+                  public void onComplete(@NonNull Task<Void> task) {
+                    Log.v(LOG_TAG, "UNREGISTER");
+                    // Remove shared prefs
+                    SharedPreferences.Editor editor = sharedPref.edit();
+                    editor.remove(SOUND);
+                    editor.remove(VIBRATE);
+                    editor.remove(CLEAR_BADGE);
+                    editor.remove(CLEAR_NOTIFICATIONS);
+                    editor.remove(FORCE_SHOW);
+                    editor.remove(SENDER_ID);
+                    editor.commit();
+                  }
+                });
+                if (deleteTokenTask.isComplete()) {
+                  break;
+                } else {
+                  nRetryCount++;
+                  Thread.sleep(5000);
+                }
+              }
             }
 
             callbackContext.success();
-          } catch (IOException e) {
+          } catch (Exception e) {
             Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
             callbackContext.error(e.getMessage());
           }

@@ -33,13 +33,9 @@
         </intent-filter>
       </service>
     </config-file>
-    <preference name="ANDROID_SUPPORT_V13_VERSION" default="28.0.0"/>
-    <preference name="FCM_VERSION" default="19.0.1"/>
-    <framework src="com.android.support:support-v13:$ANDROID_SUPPORT_V13_VERSION"/>
+    <preference name="FCM_VERSION" default="22.0.0"/>
     <framework src="me.leolin:ShortcutBadger:1.1.22@aar"/>
     <framework src="com.google.firebase:firebase-messaging:$FCM_VERSION"/>
-    <dependency id="cordova-support-google-services" url="https://github.com/LuisEGR/cordova-support-google-services.git" commit="952286f1ed1477ac807f270b012705b05835ecd7"/>
-    <dependency id="phonegap-plugin-multidex" version="~1.0.0"/>
     <source-file src="src/android/com/adobe/phonegap/push/FCMService.java" target-dir="src/com/adobe/phonegap/push/"/>
     <source-file src="src/android/com/adobe/phonegap/push/PushConstants.java" target-dir="src/com/adobe/phonegap/push/"/>
     <source-file src="src/android/com/adobe/phonegap/push/PushHandlerActivity.java" target-dir="src/com/adobe/phonegap/push/"/>
