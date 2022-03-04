@@ -13,14 +13,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 
-import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.messaging.FirebaseMessaging;
 
@@ -33,7 +31,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -176,137 +173,143 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
     gWebView = this.webView;
 
     if (INITIALIZE.equals(action)) {
-      cordova.getThreadPool().execute(new Runnable() {
-        public void run() {
-          pushContext = callbackContext;
-          JSONObject jo = null;
+      cordova.getThreadPool().execute(() -> {
+        pushContext = callbackContext;
+        JSONObject jo = null;
 
-          Log.v(LOG_TAG, "execute: data=" + data.toString());
-          SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
-              Context.MODE_PRIVATE);
-          final String[] token = {""};
-          String senderID = null;
+        Log.v(LOG_TAG, "execute: data=" + data.toString());
+        SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
+            Context.MODE_PRIVATE);
+        final String[] token = {""};
+        String senderID = null;
+
+        try {
+          jo = data.getJSONObject(0).getJSONObject(ANDROID);
+
+          // If no NotificationChannels exist create the default one
+          createDefaultNotificationChannelIfNeeded(jo);
+
+          Log.v(LOG_TAG, "execute: jo=" + jo.toString());
+
+          senderID = getStringResourceByName(GCM_DEFAULT_SENDER_ID);
+
+          Log.v(LOG_TAG, "execute: senderID=" + senderID);
 
           try {
-            jo = data.getJSONObject(0).getJSONObject(ANDROID);
-
-            // If no NotificationChannels exist create the default one
-            createDefaultNotificationChannelIfNeeded(jo);
-
-            Log.v(LOG_TAG, "execute: jo=" + jo.toString());
-
-            senderID = getStringResourceByName(GCM_DEFAULT_SENDER_ID);
-
-            Log.v(LOG_TAG, "execute: senderID=" + senderID);
-
-            try {
-              int nRetryCount = 0;
-              while (nRetryCount < 5) {
-                Task<String> tokenTask = FirebaseMessaging.getInstance().getToken().addOnCompleteListener(new OnCompleteListener<String>() {
-                  @Override
-                  public void onComplete(@NonNull Task<String> task) {
-                    token[0] = task.getResult();
-                  }
-                });
-                if (tokenTask.isComplete() && !TextUtils.isEmpty(token[0])) {
-                  break;
-                } else {
-                  nRetryCount++;
-                  token[0] = "";
-                  Thread.sleep(5000);
+            int nRetryCount = 0;
+            while (nRetryCount < 5) {
+              JSONObject finalJo = jo;
+              Task<String> tokenTask = FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+                if (task.isSuccessful()) {
+                  token[0] = task.getResult();
                 }
+                if (token[0] == null || "".equals(token[0])) {
+                  token[0] = sharedPref.getString(FCM_TOKEN, "");
+                }
+                if (!TextUtils.isEmpty(token[0])) {
+                  JSONObject json = null;
+                  try {
+                    json = new JSONObject().put(REGISTRATION_ID, token[0]);
+                    json.put(REGISTRATION_TYPE, FCM);
+                    Log.v(LOG_TAG, "onRegistered: " + json.toString());
+                    JSONArray topics = finalJo.optJSONArray(TOPICS);
+                    subscribeToTopics(topics, registration_id);
+                    PushPlugin.sendEvent(json);
+                  } catch (JSONException e) {
+                    Log.e(LOG_TAG, "execute ERROR:", e);
+                  }
+                } else {
+                  Log.e(LOG_TAG, "execute ERROR: Firebase Messaging getToken() Failed.");
+                  callbackContext.error("Empty registration ID received from FCM");
+                }
+              });
+              if (tokenTask.isSuccessful() && !TextUtils.isEmpty(token[0])) {
+                break;
+              } else {
+                nRetryCount++;
+                token[0] = "";
+                Thread.sleep(5000);
               }
-            } catch (IllegalStateException e) {
-              Log.e(LOG_TAG, "Exception raised while getting Firebase token " + e.getMessage());
             }
-
-            if (token[0] == null || "".equals(token[0])) {
-              token[0] = sharedPref.getString(FCM_TOKEN, "");
-            }
-
-            if (!"".equals(token[0])) {
-              JSONObject json = new JSONObject().put(REGISTRATION_ID, token[0]);
-              json.put(REGISTRATION_TYPE, FCM);
-
-              Log.v(LOG_TAG, "onRegistered: " + json.toString());
-
-              JSONArray topics = jo.optJSONArray(TOPICS);
-              subscribeToTopics(topics, registration_id);
-
-              PushPlugin.sendEvent(json);
-            } else {
-              callbackContext.error("Empty registration ID received from FCM");
-              return;
-            }
-          } catch (JSONException e) {
-            Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
-            callbackContext.error(e.getMessage());
-          } catch (Resources.NotFoundException e) {
-
-            Log.e(LOG_TAG, "execute: Got Resources NotFoundException " + e.getMessage());
-            callbackContext.error(e.getMessage());
           } catch (Exception e) {
-            Log.e(LOG_TAG, "execute: Got IO Exception " + e.getMessage());
-            callbackContext.error(e.getMessage());
+            Log.e(LOG_TAG, "Exception raised while getting Firebase token " + e.getMessage());
           }
 
-          if (jo != null) {
-            SharedPreferences.Editor editor = sharedPref.edit();
-            try {
-              editor.putString(ICON, jo.getString(ICON));
-            } catch (JSONException e) {
-              Log.d(LOG_TAG, "no icon option");
-            }
-            try {
-              editor.putString(ICON_COLOR, jo.getString(ICON_COLOR));
-            } catch (JSONException e) {
-              Log.d(LOG_TAG, "no iconColor option");
-            }
-
-            boolean clearBadge = jo.optBoolean(CLEAR_BADGE, false);
-            if (clearBadge) {
-              setApplicationIconBadgeNumber(getApplicationContext(), 0);
-            }
-
-            editor.putBoolean(SOUND, jo.optBoolean(SOUND, true));
-            editor.putBoolean(VIBRATE, jo.optBoolean(VIBRATE, true));
-            editor.putBoolean(CLEAR_BADGE, clearBadge);
-            editor.putBoolean(CLEAR_NOTIFICATIONS, jo.optBoolean(CLEAR_NOTIFICATIONS, true));
-            editor.putBoolean(FORCE_SHOW, jo.optBoolean(FORCE_SHOW, false));
-            editor.putString(SENDER_ID, senderID);
-            editor.putString(MESSAGE_KEY, jo.optString(MESSAGE_KEY));
-            editor.putString(TITLE_KEY, jo.optString(TITLE_KEY));
-            editor.commit();
-
+          if (token[0] == null || "".equals(token[0])) {
+            token[0] = sharedPref.getString(FCM_TOKEN, "");
           }
 
-          if (!gCachedExtras.isEmpty()) {
-            Log.v(LOG_TAG, "sending cached extras");
-            synchronized (gCachedExtras) {
-              Iterator<Bundle> gCachedExtrasIterator = gCachedExtras.iterator();
-              while (gCachedExtrasIterator.hasNext()) {
-                sendExtras(gCachedExtrasIterator.next());
-              }
-            }
-            gCachedExtras.clear();
+          if ("".equals(token[0])) {
+            Log.e(LOG_TAG, "execute ERROR: Firebase Messaging getToken() Failed.");
+            return;
           }
+        } catch (JSONException e) {
+          Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
+          callbackContext.error(e.getMessage());
+        } catch (Resources.NotFoundException e) {
+
+          Log.e(LOG_TAG, "execute: Got Resources NotFoundException " + e.getMessage());
+          callbackContext.error(e.getMessage());
+        } catch (Exception e) {
+          Log.e(LOG_TAG, "execute: Got IO Exception " + e.getMessage());
+          callbackContext.error(e.getMessage());
+        }
+
+        if (jo != null) {
+          SharedPreferences.Editor editor = sharedPref.edit();
+          try {
+            editor.putString(ICON, jo.getString(ICON));
+          } catch (JSONException e) {
+            Log.d(LOG_TAG, "no icon option");
+          }
+          try {
+            editor.putString(ICON_COLOR, jo.getString(ICON_COLOR));
+          } catch (JSONException e) {
+            Log.d(LOG_TAG, "no iconColor option");
+          }
+
+          boolean clearBadge = jo.optBoolean(CLEAR_BADGE, false);
+          if (clearBadge) {
+            setApplicationIconBadgeNumber(getApplicationContext(), 0);
+          }
+
+          editor.putBoolean(SOUND, jo.optBoolean(SOUND, true));
+          editor.putBoolean(VIBRATE, jo.optBoolean(VIBRATE, true));
+          editor.putBoolean(CLEAR_BADGE, clearBadge);
+          editor.putBoolean(CLEAR_NOTIFICATIONS, jo.optBoolean(CLEAR_NOTIFICATIONS, true));
+          editor.putBoolean(FORCE_SHOW, jo.optBoolean(FORCE_SHOW, false));
+          editor.putString(SENDER_ID, senderID);
+          editor.putString(MESSAGE_KEY, jo.optString(MESSAGE_KEY));
+          editor.putString(TITLE_KEY, jo.optString(TITLE_KEY));
+          editor.commit();
+
+        }
+
+        if (!gCachedExtras.isEmpty()) {
+          Log.v(LOG_TAG, "sending cached extras");
+          synchronized (gCachedExtras) {
+            Iterator<Bundle> gCachedExtrasIterator = gCachedExtras.iterator();
+            while (gCachedExtrasIterator.hasNext()) {
+              sendExtras(gCachedExtrasIterator.next());
+            }
+          }
+          gCachedExtras.clear();
         }
       });
     } else if (UNREGISTER.equals(action)) {
-      cordova.getThreadPool().execute(new Runnable() {
-        public void run() {
-          try {
-            final SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
-                Context.MODE_PRIVATE);
-            JSONArray topics = data.optJSONArray(0);
-            if (topics != null && !"".equals(registration_id)) {
-              unsubscribeFromTopics(topics, registration_id);
-            } else {
-              int nRetryCount = 0;
-              while (nRetryCount < 3) {
-                Task<Void> deleteTokenTask = FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener(new OnCompleteListener<Void>() {
-                  @Override
-                  public void onComplete(@NonNull Task<Void> task) {
+      cordova.getThreadPool().execute(() -> {
+        try {
+          final SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
+              Context.MODE_PRIVATE);
+          JSONArray topics = data.optJSONArray(0);
+          if (topics != null && !"".equals(registration_id)) {
+            unsubscribeFromTopics(topics, registration_id);
+          } else {
+            int nRetryCount = 0;
+            while (nRetryCount < 3) {
+              Task<Void> deleteTokenTask = FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener(task -> {
+                try {
+                  if (task.isSuccessful()) {
                     Log.v(LOG_TAG, "UNREGISTER");
                     // Remove shared prefs
                     SharedPreferences.Editor editor = sharedPref.edit();
@@ -317,22 +320,25 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
                     editor.remove(FORCE_SHOW);
                     editor.remove(SENDER_ID);
                     editor.commit();
+                  } else {
+                    Log.e(LOG_TAG, "execute: delete token failed." + task.toString());
                   }
-                });
-                if (deleteTokenTask.isComplete()) {
-                  break;
-                } else {
-                  nRetryCount++;
-                  Thread.sleep(5000);
+                } catch (Exception ignored) {
                 }
+              });
+              if (deleteTokenTask.isSuccessful()) {
+                break;
+              } else {
+                nRetryCount++;
+                Thread.sleep(5000);
               }
             }
-
-            callbackContext.success();
-          } catch (Exception e) {
-            Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
-            callbackContext.error(e.getMessage());
           }
+
+          callbackContext.success();
+        } catch (Exception e) {
+          Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
+          callbackContext.error(e.getMessage());
         }
       });
     } else if (FINISH.equals(action)) {
