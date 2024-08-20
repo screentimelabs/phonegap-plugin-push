@@ -581,11 +581,11 @@ public class FCMService extends FirebaseMessagingService implements PushConstant
             if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
               Log.d(LOG_TAG, "push activity for notId " + notId);
               pIntent = PendingIntent.getActivity(this, uniquePendingIntentRequestCode, intent,
-                  PendingIntent.FLAG_ONE_SHOT);
+                      PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
             } else {
               Log.d(LOG_TAG, "push receiver for notId " + notId);
               pIntent = PendingIntent.getBroadcast(this, uniquePendingIntentRequestCode, intent,
-                  PendingIntent.FLAG_ONE_SHOT);
+                      PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
             }
           } else if (foreground) {
             intent = new Intent(this, PushHandlerActivity.class);
